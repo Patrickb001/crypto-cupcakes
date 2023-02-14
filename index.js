@@ -57,11 +57,13 @@ app.use(async (req, res, next) => {
 
 const setUser = async (req, res, next) => {
   const auth = req.header("Authorization");
+  // console.log(auth);
   if (!auth) {
     next();
   } else {
     const token = auth.split(" ")[1];
     const userObj = await jwt.verify(token, JWT_SECRET);
+    console.log(userObj);
     req.user = userObj;
     next();
   }
@@ -70,7 +72,6 @@ const setUser = async (req, res, next) => {
 app.use(express.static("images"));
 // req.isAuthenticated is provided from the auth router
 app.get("/", (req, res) => {
-  // console.log(req.oidc.user);
   if (req.oidc.isAuthenticated()) {
     res.send(`
     <div>
@@ -91,10 +92,23 @@ app.get("/", (req, res) => {
   }
 });
 
-app.get("/cupcakes", async (req, res, next) => {
+app.get("/cupcakes", setUser, async (req, res, next) => {
   try {
-    const cupcakes = await Cupcake.findAll();
-    res.send(cupcakes);
+    let user;
+    if (req.oidc.user) {
+      user = await User.findOne({
+        where: { username: req?.oidc?.user?.nickname },
+      });
+      // console.log(req.user);
+      // console.log(user);
+    }
+
+    if (req.user || user) {
+      const cupcakes = await Cupcake.findAll();
+      res.send(cupcakes);
+    } else {
+      res.sendStatus(401);
+    }
   } catch (error) {
     console.error(error);
     next(error);
@@ -129,7 +143,7 @@ app.post("/cupcakes", setUser, async (req, res, next) => {
         ownerId: id,
       });
 
-      res.send(cupcake);
+      res.send("Successful Connection");
     } else {
       console.log(req.user);
       res.sendStatus(401);
