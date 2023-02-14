@@ -30,7 +30,7 @@ const {
 } = process.env;
 
 const config = {
-  authRequired: true,
+  authRequired: false,
   auth0Logout: true,
   secret: AUTH0_SECRET,
   baseURL: AUTH0_baseURL,
@@ -41,32 +41,54 @@ const config = {
 // auth router attaches /login, /logout, and /callback routes to the baseURL
 app.use(auth(config));
 app.use(async (req, res, next) => {
-  const { name, email } = req.oidc.user;
-  const [user] = await User.findOrCreate({
-    where: {
-      username: req.oidc.user.nickname,
-      name,
-      email,
-    },
-  });
-  console.log(user);
-  next();
+  if (!req?.oidc?.user) next();
+  else {
+    const { name, email } = req.oidc.user;
+    const [user] = await User.findOrCreate({
+      where: {
+        username: req.oidc.user.nickname,
+        name,
+        email,
+      },
+    });
+    next();
+  }
 });
+
+const setUser = async (req, res, next) => {
+  const auth = req.header("Authorization");
+  if (!auth) {
+    next();
+  } else {
+    const token = auth.split(" ")[1];
+    const userObj = await jwt.verify(token, JWT_SECRET);
+    req.user = userObj;
+    next();
+  }
+};
 
 app.use(express.static("images"));
 // req.isAuthenticated is provided from the auth router
 app.get("/", (req, res) => {
   // console.log(req.oidc.user);
-
-  res.send(`
-  <div>
-  <h1 style="text-align: center;"> My Web App Inc</h1>
-  <h2>Welcome, ${req.oidc.user.name}</h2>
-  <h3>Username ${req.oidc.user.nickname}</h3>
-  <p>email: ${req.oidc.user.email}</p>
-  <img src=${req.oidc.user.picture} alt="User profile picture"  />
-  </div>
-  `);
+  if (req.oidc.isAuthenticated()) {
+    res.send(`
+    <div>
+    <h1 style="text-align: center;"> My Web App Inc</h1>
+    <h2>Welcome, ${req.oidc.user.name}</h2>
+    <h3>Username ${req.oidc.user.nickname}</h3>
+    <p>email: ${req.oidc.user.email}</p>
+    <img src=${req.oidc.user.picture} alt="User profile picture"  />
+    </div>
+    `);
+  } else {
+    res.oidc.login({
+      returnTo: "/",
+      authorizationParams: {
+        redirect_uri: "http://localhost:3000/callback",
+      },
+    });
+  }
 });
 
 app.get("/cupcakes", async (req, res, next) => {
@@ -91,6 +113,28 @@ app.get("/me", async (req, res, next) => {
     }
   } catch (error) {
     console.log(error);
+    next(error);
+  }
+});
+
+app.post("/cupcakes", setUser, async (req, res, next) => {
+  try {
+    if (req.user) {
+      const { id } = req.user;
+      const { title, flavor, stars } = req.body;
+      const cupcake = await Cupcake.create({
+        title,
+        flavor,
+        stars,
+        ownerId: id,
+      });
+
+      res.send(cupcake);
+    } else {
+      console.log(req.user);
+      res.sendStatus(401);
+    }
+  } catch (error) {
     next(error);
   }
 });
